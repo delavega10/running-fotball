@@ -891,8 +891,22 @@ function spawnObject() {
   }
 
   if (spawnedType==='bar' || spawnedType==='movingbar' || spawnedType==='tunnel' || spawnedType==='conerow' || spawnedType==='platform') {
-    heavyObstacleCooldown = 1.0;
+    heavyObstacleCooldown = 1.35;
   }
+}
+
+function canSpawnNow() {
+  // Keep a minimum z-gap between obstacle waves so high speed remains fair.
+  const minGap = 10 + Math.max(0, speed - 13) * 0.28;
+  let nearestGap = Infinity;
+  for (const obj of objects) {
+    const type = obj.userData?.type;
+    if (!type) continue;
+    if (type === 'ball' || type === 'coin') continue;
+    const gap = Math.abs(obj.position.z - SPAWN_Z);
+    if (gap < nearestGap) nearestGap = gap;
+  }
+  return nearestGap > minGap;
 }
 
 function makeBall(radius) {
@@ -1227,10 +1241,13 @@ function updateGame(dt) {
   applyThemeProgression(dt);
   animateArcadeFX(dt);
 
+  // Smooth spawn interval by speed (no extreme compression at high speed).
+  const targetSpawnInt = Math.max(0.9, 1.05 - Math.max(0, speed - 13) * 0.005);
+  spawnInt += (targetSpawnInt - spawnInt) * 0.12;
+
   spawnTimer+=dt;
-  if(spawnTimer>=spawnInt){
+  if(spawnTimer>=spawnInt && canSpawnNow()){
     spawnTimer=0; spawnObject();
-    if(spawnInt>0.5) spawnInt-=0.013;
     if(speed<30) speed+=0.18;
   }
 
