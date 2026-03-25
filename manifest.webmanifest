@@ -1,0 +1,24 @@
+{
+  "name": "Fodbold Runner",
+  "short_name": "Runner",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a3d68",
+  "theme_color": "#1a3d68",
+  "icons": [
+    {
+      "src": "./textures/player.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./textures/grass.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
