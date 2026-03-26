@@ -3,90 +3,146 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#1a3d68">
+<meta name="theme-color" content="#ff6a00">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="./manifest.webmanifest">
-<title>Fodbold Runner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+<title>Fodbold Gold Runner</title>
 <style>
 html, body { width:100%; height:100%; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#000; overflow:hidden; }
 canvas { display:block; }
-#ui { position:fixed; top:0; left:0; right:0; bottom:0; width:100%; height:100%; pointer-events:none; font-family:'Segoe UI',Arial,sans-serif; z-index:10; }
+#ui { position:fixed; top:0; left:0; right:0; bottom:0; width:100%; height:100%; pointer-events:none; font-family:'Fredoka One','Segoe UI',Arial,sans-serif; z-index:10; }
+
+/* Gold coin score badge */
 #score {
-  position:absolute; top:16px; left:50%; transform:translateX(-50%);
-  background:linear-gradient(135deg,#ff6b00,#ff9900); color:#fff; font-size:28px; font-weight:900;
-  padding:8px 30px; border-radius:30px; letter-spacing:1px;
-  text-shadow:0 2px 4px rgba(0,0,0,0.3);
-  box-shadow:0 4px 12px rgba(0,0,0,0.3);
+  position:absolute; top:14px; left:50%; transform:translateX(-50%);
+  background:linear-gradient(180deg,#FFE566 0%,#FFA500 100%);
+  color:#7a3800; font-size:26px;
+  padding:8px 26px 8px 18px; border-radius:50px; letter-spacing:1px;
+  text-shadow:0 1px 0 rgba(255,255,255,0.4);
+  box-shadow:0 5px 0 #c47000, 0 8px 20px rgba(180,90,0,0.5), inset 0 1px 0 rgba(255,255,255,0.35);
+  border:2px solid #FFE87A;
+  transition:transform 0.12s;
 }
+
 #controls {
   position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
-  color:rgba(255,255,255,0.55); font-size:12px; text-align:center;
+  color:rgba(255,230,180,0.65); font-size:12px; text-align:center;
+  text-shadow:0 1px 3px rgba(0,0,0,0.6);
 }
+
 #goal-flash {
   position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(255,215,0,0); pointer-events:none;
   transition:background 0.1s;
 }
+
+/* Golden speed lines */
 #speed-lines {
   position:absolute; top:0; left:0; right:0; bottom:0; pointer-events:none; opacity:0;
   background:
     repeating-linear-gradient(
       -14deg,
-      rgba(255,255,255,0.18) 0px,
-      rgba(255,255,255,0.18) 3px,
-      rgba(255,255,255,0.00) 3px,
-      rgba(255,255,255,0.00) 24px
+      rgba(255,220,60,0.2) 0px,
+      rgba(255,220,60,0.2) 3px,
+      rgba(255,220,60,0.00) 3px,
+      rgba(255,220,60,0.00) 24px
     );
   mix-blend-mode:screen;
   transition:opacity 0.2s;
 }
+
+/* Goal text - gold burst */
 #goal-text {
   position:absolute; top:28%; left:50%; transform:translateX(-50%) scale(1);
-  color:#FFD700; font-size:60px; font-weight:900; text-shadow:0 0 30px #ff6600, 0 4px 8px rgba(0,0,0,0.4);
+  color:#FFD700; font-size:72px;
+  text-shadow:0 0 30px #ff6600, 0 0 60px rgba(255,150,0,0.5), 0 4px 0 #B8860B, 0 6px 14px rgba(0,0,0,0.4);
   opacity:0; pointer-events:none; transition:opacity 0.25s, transform 0.25s;
+  letter-spacing:4px;
 }
+
+/* Game Over overlay */
 #overlay {
   display:none; position:absolute; top:0; left:0; right:0; bottom:0;
-  background:rgba(0,0,0,0.82); justify-content:center; align-items:center;
+  background:linear-gradient(180deg,rgba(8,0,25,0.96) 0%,rgba(70,15,0,0.96) 100%);
+  justify-content:center; align-items:center;
   flex-direction:column; pointer-events:all;
 }
 #overlay.show { display:flex; }
-#overlay h1 { color:#fff; font-size:56px; margin-bottom:8px; text-shadow:0 3px 8px rgba(0,0,0,0.4); }
-#overlay .sub { color:#FFD700; font-size:36px; font-weight:bold; margin-bottom:32px; }
+#overlay h1 {
+  color:#FFD700; font-size:72px; margin-bottom:6px;
+  text-shadow:0 4px 0 #B8860B, 0 8px 28px rgba(255,140,0,0.45);
+  letter-spacing:4px;
+}
+#overlay .sub {
+  color:#fff; font-size:28px; margin-bottom:36px;
+  text-shadow:0 2px 8px rgba(0,0,0,0.5);
+}
+
+/* Orange/gold Tom-style buttons */
 #overlay button, #start-screen button {
-  background:linear-gradient(135deg,#22cc44,#00aa33); color:#fff; font-size:24px; font-weight:900;
-  padding:16px 52px; border:none; border-radius:16px; cursor:pointer;
-  box-shadow:0 6px 20px rgba(0,0,0,0.3); text-shadow:0 2px 3px rgba(0,0,0,0.2);
-  transition:transform 0.1s;
+  background:linear-gradient(180deg,#ffaa00 0%,#ff5500 100%);
+  color:#fff; font-size:26px;
+  padding:17px 64px; border:none; border-radius:50px; cursor:pointer;
+  box-shadow:0 6px 0 #aa3300, 0 10px 28px rgba(255,70,0,0.4);
+  text-shadow:0 2px 5px rgba(0,0,0,0.35);
+  transition:transform 0.1s, box-shadow 0.1s;
+  letter-spacing:1px;
 }
-#overlay button:active, #start-screen button:active { transform:scale(0.95); }
+#overlay button:active, #start-screen button:active {
+  transform:translateY(4px);
+  box-shadow:0 2px 0 #aa3300, 0 4px 14px rgba(255,70,0,0.35);
+}
+
+/* Start screen - Tom Run Gold style */
 #start-screen {
-  position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,20,60,0.88);
+  position:absolute; top:0; left:0; right:0; bottom:0;
+  background:linear-gradient(180deg, #0d0b2b 0%, #1e1470 28%, #9b35d4 62%, #ff6a00 100%);
   display:flex; flex-direction:column; justify-content:center; align-items:center;
-  pointer-events:all;
+  pointer-events:all; gap:5px;
 }
-#start-screen h1 { color:#fff; font-size:52px; margin-bottom:6px; text-shadow:0 3px 8px rgba(0,0,0,0.4); }
-#start-screen p  { color:rgba(255,255,255,0.7); font-size:15px; margin-bottom:4px; }
+#start-screen::after {
+  content:''; position:absolute; bottom:0; left:0; right:0; height:42%;
+  background:linear-gradient(0deg,rgba(255,100,0,0.28),transparent);
+  pointer-events:none;
+}
+.start-label {
+  font-size:13px; color:#FFD700; text-transform:uppercase; letter-spacing:5px;
+  text-shadow:0 2px 10px rgba(0,0,0,0.5); z-index:1;
+}
+#start-screen h1 {
+  color:#fff; font-size:58px;
+  text-shadow:0 4px 0 #cc4400, 0 8px 28px rgba(255,80,0,0.55);
+  letter-spacing:2px; z-index:1; text-align:center; line-height:1.1;
+}
+.start-emoji { font-size:86px; margin:6px 0; z-index:1; filter:drop-shadow(0 4px 14px rgba(255,140,0,0.65)); }
+#start-screen p {
+  color:rgba(255,220,160,0.88); font-size:14px; z-index:1;
+  text-shadow:0 1px 4px rgba(0,0,0,0.55);
+}
 </style>
 </head>
 <body>
 <div id="ui">
   <div id="speed-lines"></div>
-  <div id="score">⚽ 0</div>
+  <div id="score">🏆 0</div>
   <div id="goal-flash"></div>
-  <div id="goal-text">⚽ MÅL!</div>
+  <div id="goal-text">🏆 MÅL!</div>
   <div id="controls">← → Bane &nbsp;|&nbsp; ↑/Mellemrum Hop &nbsp;|&nbsp; ↓ Duk</div>
   <div id="overlay">
-    <h1>Game Over!</h1>
-    <div class="sub" id="fs">⚽ 0 point!</div>
-    <button onclick="restartGame()">🔄 Prøv igen!</button>
+    <h1>GAME OVER</h1>
+    <div class="sub" id="fs">🏆 0 guld!</div>
+    <button onclick="restartGame()">▶ Prøv igen!</button>
   </div>
   <div id="start-screen">
-    <h1>⚽ Fodbold Runner</h1>
-    <p>Saml bolde · Undgå forhindringer · Løb over platforme!</p>
+    <div class="start-label">⭐ Gold Edition ⭐</div>
+    <div class="start-emoji">⚽</div>
+    <h1>Fodbold<br>Runner</h1>
+    <p>Saml guld · Undgå forhindringer · Løb!</p>
     <p>← → Skift bane &nbsp;|&nbsp; ↑ Hop &nbsp;|&nbsp; ↓ Duk</p>
-    <button style="margin-top:22px" onclick="startGame()">▶ Start Spil</button>
+    <button style="margin-top:26px;position:relative;z-index:1" onclick="startGame()">▶ SPIL NU!</button>
   </div>
 </div>
 <script src="./vendor/three.min.js"></script>
@@ -131,9 +187,9 @@ const PLAYER_BASE_SCALE = 0.64;
 let crowdTex = null;
 let ambientLightRef = null, sunLightRef = null;
 let skyCtx = null, skyTex = null;
-let skyTopCol = new THREE.Color(0x1a3d68);
-let skyMidCol = new THREE.Color(0x4b7fb4);
-let skyBotCol = new THREE.Color(0x9abbd9);
+let skyTopCol = new THREE.Color(0x1855a0);
+let skyMidCol = new THREE.Color(0x4090e0);
+let skyBotCol = new THREE.Color(0x90c4f0);
 const groundThemeMats = { grassDark:null, grassLight:null, side:null };
 const themeVisuals = {
   stand: [], barrierBlue: [], barrierOrange: [], crowdRibbon: [],
@@ -143,11 +199,11 @@ const themeVisuals = {
 const themeScratch = { a:new THREE.Color(), b:new THREE.Color(), c:new THREE.Color() };
 const THEMES = [
   {
-    at:0, clear:0x3f6f9e, fog:0x4f7ea8, ambient:0xcfe0ff, ambientI:0.45, sun:0xfff1d6, sunI:0.48,
-    grassDark:0x2ea64f, grassLight:0x46c965, side:0xd8d8d8, stand:0x4b5f86,
-    barrierBlue:0x416fcb, barrierOrange:0xf07a35, crowdTint:0xffffff, ad:0xffffff, bush:0x32b84a,
-    backdrop:0x9fb3dc, tunnel:0x2b3f63, boardScreen:0x63bd5c, flood:0xdde6f4,
-    skyTop:0x1a3d68, skyMid:0x4b7fb4, skyBot:0x9abbd9
+    at:0, clear:0x4a90e2, fog:0x62aaf0, ambient:0xeef8ff, ambientI:0.55, sun:0xfff8e0, sunI:0.60,
+    grassDark:0x26b845, grassLight:0x44d462, side:0xe8e4d0, stand:0x4a72b8,
+    barrierBlue:0x2e7de0, barrierOrange:0xff7a20, crowdTint:0xffffff, ad:0xffffff, bush:0x28c842,
+    backdrop:0x8ab0d8, tunnel:0x1e3460, boardScreen:0x50d060, flood:0xe0eeff,
+    skyTop:0x1855a0, skyMid:0x4090e0, skyBot:0x90c4f0
   },
   {
     at:320, clear:0x5f577d, fog:0x6a6889, ambient:0xe6ccbb, ambientI:0.40, sun:0xffc09c, sunI:0.52,
@@ -286,12 +342,12 @@ function init() {
   renderer = new THREE.WebGLRenderer({ antialias:true });
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setClearColor(0x3f6f9e);
+  renderer.setClearColor(0x4a90e2);
   renderer.shadowMap.enabled = true;
   document.body.insertBefore(renderer.domElement, document.getElementById('ui'));
 
   scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x4f7ea8, 42, 102);
+  scene.fog = new THREE.Fog(0x62aaf0, 42, 102);
 
   cam = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.1, 130);
   resetCam();
@@ -673,15 +729,15 @@ function buildSkyDeco() {
 function buildPlayer() {
   const g=new THREE.Group();
   const skin   =()=>toon(0xffcc88);
-  const hoodie =()=>toon(0x2266ee);
-  const accent =()=>toon(0xff6622);
-  const pants  =()=>toon(0x777766);
-  const shoe   =()=>toon(0x2255cc);
-  const shoeAcc=()=>toon(0xff8833);
-  const hair   =()=>toon(0x3a3355);
+  const hoodie =()=>toon(0xff6600);   // Orange - Tom style
+  const accent =()=>toon(0xFFCC00);   // Gold accent
+  const pants  =()=>toon(0x222244);   // Dark navy
+  const shoe   =()=>toon(0x882200);   // Dark orange-brown shoe
+  const shoeAcc=()=>toon(0xFFCC00);   // Gold stripe on shoe
+  const hair   =()=>toon(0x886644);   // Warm brown hair
   const white  =()=>toon(0xf0f0f0);
   const dark   =()=>toon(0x333333);
-  const pack   =()=>toon(0xff6622);
+  const pack   =()=>toon(0xFFCC00);   // Gold backpack
 
   // Torso (rounded hoodie)
   P.torso = new THREE.Group();
@@ -935,14 +991,18 @@ function spawnBall() {
 function spawnCoinLine() {
   const l=ri(0,2);
   for(let i=0;i<6;i++){
-    const coin=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.08,12),
-      toon(0xffdd00));
-    const rim=new THREE.Mesh(new THREE.TorusGeometry(0.22,0.03,6,12),
-      new THREE.MeshBasicMaterial({color:0xff9900}));
-    coin.add(rim);
-    coin.rotation.x=Math.PI/2;
-    coin.position.set(LANES[l],GY+0.7,SPAWN_Z-i*1.8);
-    coin.userData={type:'coin'}; scene.add(coin); objects.push(coin);
+    const coinG=new THREE.Group();
+    // Gold bar shape - like Tom Run Gold
+    const bar=new THREE.Mesh(new THREE.BoxGeometry(0.44,0.22,0.2), toon(0xFFD700));
+    const shine=new THREE.Mesh(new THREE.BoxGeometry(0.44,0.22,0.2),
+      new THREE.MeshBasicMaterial({color:0xFFE566, transparent:true, opacity:0.55}));
+    shine.scale.set(0.7,0.45,1.01); bar.add(shine);
+    const edgeL=new THREE.Mesh(new THREE.BoxGeometry(0.06,0.22,0.22), toon(0xcc8800));
+    edgeL.position.x=-0.19; bar.add(edgeL);
+    const edgeR=edgeL.clone(); edgeR.position.x=0.19; bar.add(edgeR);
+    coinG.add(bar);
+    coinG.position.set(LANES[l],GY+0.7,SPAWN_Z-i*1.8);
+    coinG.userData={type:'coin'}; scene.add(coinG); objects.push(coinG);
   }
 }
 
@@ -1181,7 +1241,7 @@ function shootBallToGoal(ball) {
 function showGoalFlash() {
   goals++;
   score+=10;
-  document.getElementById('score').textContent='⚽ '+score;
+  document.getElementById('score').textContent='🏆 '+score;
   const gt=document.getElementById('goal-text');
   triggerArcadePulse('rgba(255,215,0,0.32)');
   gt.style.opacity='1';
@@ -1269,9 +1329,9 @@ function updateGame(dt) {
     }
 
     if(obj.userData.type==='coin'){
-      obj.rotation.z+=dt*4;
+      obj.rotation.y+=dt*3.5;
       if(dz<0.6 && dx<0.55){
-        score+=5; document.getElementById('score').textContent='⚽ '+score;
+        score+=5; document.getElementById('score').textContent='🏆 '+score;
         triggerArcadePulse('rgba(120,255,220,0.28)');
         scene.remove(obj); toRemove.push(obj); continue;
       }
@@ -1345,7 +1405,7 @@ function onKey(e){
 
 function triggerGameOver(){
   alive=false; cancelAnimationFrame(raf);
-  document.getElementById('fs').textContent='⚽ '+score+' point! ('+goals+' mål)';
+  document.getElementById('fs').textContent='🏆 '+score+' guld! ('+goals+' mål)';
   document.getElementById('overlay').classList.add('show');
   document.getElementById('speed-lines').style.opacity='0';
 }
@@ -1361,7 +1421,7 @@ function reset(){
   platformY=0; legT=0; bobT=0; heavyObstacleCooldown=0;
   playerGroup.position.set(LANES[1],GY,PZ);
   playerGroup.scale.set(PLAYER_BASE_SCALE,PLAYER_BASE_SCALE,PLAYER_BASE_SCALE);
-  document.getElementById('score').textContent='⚽ 0';
+  document.getElementById('score').textContent='🏆 0';
   resetCam(); lastT=0;
   cancelAnimationFrame(raf); loop(0);
 }

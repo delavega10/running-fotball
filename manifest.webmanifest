@@ -1,12 +1,12 @@
 {
-  "name": "Fodbold Runner",
-  "short_name": "Runner",
+  "name": "Fodbold Gold Runner",
+  "short_name": "Gold Runner",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#1a3d68",
-  "theme_color": "#1a3d68",
+  "background_color": "#ff6a00",
+  "theme_color": "#ff6a00",
   "icons": [
     {
       "src": "./textures/player.png",
