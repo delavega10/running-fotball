@@ -68,12 +68,27 @@ canvas { display:block; }
 }
 #start-screen h1 { color:#fff; font-size:52px; margin-bottom:6px; text-shadow:0 3px 8px rgba(0,0,0,0.4); }
 #start-screen p  { color:rgba(255,255,255,0.7); font-size:15px; margin-bottom:4px; }
+#powerup-hud {
+  position:absolute; top:62px; left:50%; transform:translateX(-50%);
+  display:none; flex-direction:column; align-items:center; gap:5px;
+  pointer-events:none;
+}
+#powerup-hud.show { display:flex; }
+#powerup-icon { font-size:24px; line-height:1; filter:drop-shadow(0 0 6px rgba(255,255,255,0.8)); }
+#powerup-label { color:#fff; font-size:11px; font-weight:700; letter-spacing:1px; text-shadow:0 1px 3px rgba(0,0,0,0.5); }
+#powerup-bar-wrap { width:72px; height:6px; background:rgba(255,255,255,0.22); border-radius:4px; overflow:hidden; }
+#powerup-bar { height:100%; width:100%; border-radius:4px; }
 </style>
 </head>
 <body>
 <div id="ui">
   <div id="speed-lines"></div>
   <div id="score">⚽ 0</div>
+  <div id="powerup-hud">
+    <div id="powerup-icon">⚡</div>
+    <div id="powerup-label">SHIELD</div>
+    <div id="powerup-bar-wrap"><div id="powerup-bar"></div></div>
+  </div>
   <div id="goal-flash"></div>
   <div id="goal-text">⚽ MÅL!</div>
   <div id="controls">← → Bane &nbsp;|&nbsp; ↑/Mellemrum Hop &nbsp;|&nbsp; ↓ Duk</div>
@@ -117,6 +132,15 @@ let platformY = 0;
 let duckTO = null, raf = null, lastT = 0;
 let legT = 0, worldZ = 0, bobT = 0;
 let heavyObstacleCooldown = 0;
+
+// === SUPERPOWERS PLUGIN ===
+let activePower = null; // { type, timer, maxTimer }
+let scoreMultiplier = 1;
+let powerupSpawnTimer = 0;
+const POWER_DURATIONS = { shield:5, magnet:7, turbo:6, multiplier:8 };
+const POWER_COLORS    = { shield:'#ffe066', magnet:'#55aaff', turbo:'#ff8833', multiplier:'#cc66ff' };
+const POWER_ICONS     = { shield:'⚡', magnet:'🧲', turbo:'🚀', multiplier:'⭐' };
+const POWER_LABELS    = { shield:'SHIELD', magnet:'MAGNET', turbo:'TURBO', multiplier:'2× SCORE' };
 
 let goalObjects = { L: null, R: null };
 const GOAL_Z_BASE = -48;
@@ -857,6 +881,58 @@ function animateArcadeFX(dt) {
   }
 }
 
+function makePowerupMesh(type) {
+  const hex = { shield:0xffe066, magnet:0x55aaff, turbo:0xff8833, multiplier:0xcc66ff };
+  const col = hex[type];
+  const g = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.34, 0),
+    new THREE.MeshBasicMaterial({ color:col, transparent:true, opacity:0.92 })
+  );
+  g.add(core);
+  const inner = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), toon(col));
+  g.add(inner);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.42, 0.05, 6, 16),
+    new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.65 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  g.add(ring);
+  g.castShadow = true;
+  return g;
+}
+
+function spawnPowerup() {
+  const types = ['shield','magnet','turbo','multiplier'];
+  const type = types[ri(0, types.length - 1)];
+  const l = ri(0, 2);
+  const g = makePowerupMesh(type);
+  g.position.set(LANES[l], GY + 0.72, SPAWN_Z);
+  g.userData = { type:'powerup', power:type, phase: Math.random() * Math.PI * 2 };
+  scene.add(g); objects.push(g);
+}
+
+function activatePower(type) {
+  if (activePower) deactivatePower();
+  activePower = { type, timer: POWER_DURATIONS[type], maxTimer: POWER_DURATIONS[type] };
+  if (type === 'multiplier') scoreMultiplier = 2;
+  if (type === 'turbo') speed = Math.min(speed * 1.45, 48);
+  document.getElementById('powerup-hud').classList.add('show');
+  document.getElementById('powerup-icon').textContent = POWER_ICONS[type];
+  document.getElementById('powerup-label').textContent = POWER_LABELS[type];
+  document.getElementById('powerup-bar').style.background = POWER_COLORS[type];
+  document.getElementById('powerup-bar').style.width = '100%';
+  triggerArcadePulse('rgba(255,255,120,0.38)');
+}
+
+function deactivatePower() {
+  if (!activePower) return;
+  if (activePower.type === 'multiplier') scoreMultiplier = 1;
+  if (activePower.type === 'turbo') speed = Math.max(speed / 1.45, 13);
+  activePower = null;
+  document.getElementById('powerup-hud').classList.remove('show');
+}
+
 function spawnObject() {
   const heavyLocked = heavyObstacleCooldown > 0;
   const r=Math.random();
@@ -1180,7 +1256,7 @@ function shootBallToGoal(ball) {
 
 function showGoalFlash() {
   goals++;
-  score+=10;
+  score += 10 * scoreMultiplier;
   document.getElementById('score').textContent='⚽ '+score;
   const gt=document.getElementById('goal-text');
   triggerArcadePulse('rgba(255,215,0,0.32)');
@@ -1241,6 +1317,21 @@ function updateGame(dt) {
   applyThemeProgression(dt);
   animateArcadeFX(dt);
 
+  // Power-up timer tick
+  if (activePower) {
+    activePower.timer -= dt;
+    const frac = Math.max(0, activePower.timer / activePower.maxTimer);
+    document.getElementById('powerup-bar').style.width = (frac * 100) + '%';
+    if (activePower.timer <= 0) deactivatePower();
+  }
+
+  // Power-up auto-spawn (every 12-18 s if no active power)
+  powerupSpawnTimer += dt;
+  if (powerupSpawnTimer > 14 && !activePower) {
+    powerupSpawnTimer = -(Math.random() * 4);
+    spawnPowerup();
+  }
+
   // Smooth spawn interval by speed (no extreme compression at high speed).
   const targetSpawnInt = Math.max(0.9, 1.05 - Math.max(0, speed - 13) * 0.005);
   spawnInt += (targetSpawnInt - spawnInt) * 0.12;
@@ -1270,11 +1361,36 @@ function updateGame(dt) {
 
     if(obj.userData.type==='coin'){
       obj.rotation.z+=dt*4;
+      // Magnet pull
+      if (activePower && activePower.type === 'magnet') {
+        const distX = px - obj.position.x;
+        const distZ = PZ - obj.position.z;
+        const dist = Math.sqrt(distX*distX + distZ*distZ);
+        if (dist < 5.5) { obj.position.x += distX * dt * 4; obj.position.z += distZ * dt * 4; }
+      }
       if(dz<0.6 && dx<0.55){
-        score+=5; document.getElementById('score').textContent='⚽ '+score;
+        score += 5 * scoreMultiplier;
+        document.getElementById('score').textContent='⚽ '+score;
         triggerArcadePulse('rgba(120,255,220,0.28)');
         scene.remove(obj); toRemove.push(obj); continue;
       }
+    }
+
+    if(obj.userData.type==='powerup'){
+      obj.rotation.y += dt * 2.6;
+      obj.position.y = GY + 0.72 + Math.sin(worldZ * 0.09 + (obj.userData.phase||0)) * 0.18;
+      if(dz < 0.9 && dx < 0.9){
+        activatePower(obj.userData.power);
+        scene.remove(obj); toRemove.push(obj); continue;
+      }
+    }
+
+    // Magnet pull for balls
+    if (activePower && activePower.type === 'magnet' && obj.userData.type === 'ball') {
+      const distX = px - obj.position.x;
+      const distZ = PZ - obj.position.z;
+      const dist = Math.sqrt(distX*distX + distZ*distZ);
+      if (dist < 5.5) { obj.position.x += distX * dt * 3.5; obj.position.z += distZ * dt * 3.5; }
     }
 
     if(obj.userData.type==='cone'){
@@ -1344,6 +1460,12 @@ function onKey(e){
 }
 
 function triggerGameOver(){
+  if (activePower && activePower.type === 'shield') {
+    deactivatePower();
+    cameraShake = 1.2;
+    triggerArcadePulse('rgba(255,80,80,0.4)');
+    return;
+  }
   alive=false; cancelAnimationFrame(raf);
   document.getElementById('fs').textContent='⚽ '+score+' point! ('+goals+' mål)';
   document.getElementById('overlay').classList.add('show');
@@ -1359,6 +1481,8 @@ function reset(){
   score=0; goals=0; worldZ=0; alive=true;
   jumpY=0; jumpVY=0; grounded=true; ducking=false;
   platformY=0; legT=0; bobT=0; heavyObstacleCooldown=0;
+  activePower=null; scoreMultiplier=1; powerupSpawnTimer=0;
+  document.getElementById('powerup-hud').classList.remove('show');
   playerGroup.position.set(LANES[1],GY,PZ);
   playerGroup.scale.set(PLAYER_BASE_SCALE,PLAYER_BASE_SCALE,PLAYER_BASE_SCALE);
   document.getElementById('score').textContent='⚽ 0';
