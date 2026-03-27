@@ -186,6 +186,56 @@ const baseFov = 62;
 const PLAYER_BASE_SCALE = 0.64;
 let crowdTex = null;
 let ambientLightRef = null, sunLightRef = null;
+
+// ── GLOW / PARTICLE SYSTEM ─────────────────────────────────────────────────
+const pickupParticles = [];
+let glowTexGold, glowTexWhite, glowTexGreen;
+
+function makeGlowTex(r, g, b) {
+  const c = document.createElement('canvas'); c.width=64; c.height=64;
+  const ctx = c.getContext('2d');
+  const gr = ctx.createRadialGradient(32,32,1,32,32,32);
+  gr.addColorStop(0,    `rgba(${r},${g},${b},1)`);
+  gr.addColorStop(0.45, `rgba(${r},${g},${b},0.4)`);
+  gr.addColorStop(1,    'rgba(0,0,0,0)');
+  ctx.fillStyle = gr; ctx.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+
+function spawnPickupBurst(x, y, z, tex, count) {
+  for (let i=0; i<count; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map:tex, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
+    }));
+    const spd = 3.5 + Math.random()*4.5;
+    const ang = (i/count)*Math.PI*2 + Math.random()*0.5;
+    const elev = (0.3 + Math.random()*0.7)*Math.PI/2;
+    sp.position.set(x, y, z);
+    sp.userData.vx = Math.cos(ang)*Math.cos(elev)*spd;
+    sp.userData.vy = Math.sin(elev)*spd + 2;
+    sp.userData.vz = Math.sin(ang)*Math.cos(elev)*spd;
+    sp.userData.life = 1;
+    sp.userData.dur  = 0.3 + Math.random()*0.35;
+    const sz = 0.3 + Math.random()*0.45;
+    sp.scale.set(sz, sz, 1);
+    scene.add(sp); pickupParticles.push(sp);
+  }
+}
+
+function updatePickupParticles(dt) {
+  for (let i=pickupParticles.length-1; i>=0; i--) {
+    const p = pickupParticles[i];
+    p.userData.life -= dt / p.userData.dur;
+    if (p.userData.life <= 0) { scene.remove(p); pickupParticles.splice(i,1); continue; }
+    p.position.x += p.userData.vx * dt;
+    p.position.y += p.userData.vy * dt;
+    p.position.z += p.userData.vz * dt;
+    p.userData.vy -= 16 * dt;
+    p.material.opacity = p.userData.life;
+    const s = p.userData.life * 0.5 + 0.12;
+    p.scale.set(s, s, 1);
+  }
+}
 let skyCtx = null, skyTex = null;
 let skyTopCol = new THREE.Color(0x1855a0);
 let skyMidCol = new THREE.Color(0x4090e0);
@@ -338,6 +388,9 @@ function init() {
   gradMap.magFilter = THREE.NearestFilter;
   gradMap.needsUpdate = true;
   crowdTex = createCrowdTexture();
+  glowTexGold  = makeGlowTex(255, 200,  50);
+  glowTexWhite = makeGlowTex(200, 230, 255);
+  glowTexGreen = makeGlowTex(100, 255, 130);
 
   renderer = new THREE.WebGLRenderer({ antialias:true });
   renderer.setSize(innerWidth, innerHeight);
@@ -393,60 +446,90 @@ function resetCam() {
 }
 
 function buildGround() {
-  const grassDark = toon(0x2ea64f);
-  const grassLight = toon(0x46c965);
-  const sideMat = toon(0xd8d8d8);
-  groundThemeMats.grassDark = grassDark;
+  const grassDark  = toon(0x26b845);
+  const grassLight = toon(0x44d462);
+  const sideMat    = toon(0xb8ae98);
+  groundThemeMats.grassDark  = grassDark;
   groundThemeMats.grassLight = grassLight;
-  groundThemeMats.side = sideMat;
-  const lineMat = new THREE.MeshBasicMaterial({ color:0xffffff });
-  const dashMat = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.9 });
+  groundThemeMats.side       = sideMat;
+
+  const lineMat   = new THREE.MeshBasicMaterial({ color:0xffffff });
+  const goldMat   = new THREE.MeshBasicMaterial({ color:0xFFD700, transparent:true, opacity:0.9 });
+  const edgeMat   = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.8 });
+  const dimLineMat= new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.45 });
 
   for (let i=0; i<TILE_CNT; i++) {
     const zPos = PZ - i * TILE_LEN;
 
-    // Main lane base
+    // Base grass tile
     const t = new THREE.Mesh(new THREE.PlaneGeometry(7.4, TILE_LEN), grassDark);
-    t.rotation.x = -Math.PI / 2;
-    t.position.set(0, GY - 0.01, zPos);
+    t.rotation.x = -Math.PI/2;
+    t.position.set(0, GY-0.01, zPos);
     t.receiveShadow = true;
-    scene.add(t);
-    gTiles.push(t);
+    scene.add(t); gTiles.push(t);
 
-    // Grass stripes
-    for (let s = 0; s < 6; s++) {
+    // Alternating stripes — classic football pitch checkerboard
+    for (let s=0; s<6; s++) {
       const stripe = new THREE.Mesh(
-        new THREE.PlaneGeometry(7.4, TILE_LEN / 6),
-        s % 2 === 0 ? grassLight : grassDark
+        new THREE.PlaneGeometry(7.4, TILE_LEN/6),
+        (s+i)%2===0 ? grassLight : grassDark
       );
-      stripe.rotation.x = -Math.PI / 2;
-      stripe.position.set(0, GY - 0.005, zPos - TILE_LEN / 2 + (s + 0.5) * (TILE_LEN / 6));
+      stripe.rotation.x = -Math.PI/2;
+      stripe.position.set(0, GY-0.005, zPos - TILE_LEN/2 + (s+0.5)*(TILE_LEN/6));
       scene.add(stripe);
     }
 
-    // Side walk / stadium floor
+    // Side paving
     [-5.8, 5.8].forEach(x => {
       const side = new THREE.Mesh(new THREE.PlaneGeometry(4.6, TILE_LEN), sideMat);
-      side.rotation.x = -Math.PI / 2;
-      side.position.set(x, GY - 0.02, zPos);
+      side.rotation.x = -Math.PI/2;
+      side.position.set(x, GY-0.02, zPos);
       side.receiveShadow = true;
       scene.add(side);
     });
 
-    // Lane white borders
+    // Outer pitch boundary lines (thicker)
+    [-3.7, 3.7].forEach(x => {
+      const ol = new THREE.Mesh(new THREE.PlaneGeometry(0.2, TILE_LEN), edgeMat);
+      ol.rotation.x = -Math.PI/2;
+      ol.position.set(x, GY+0.016, zPos);
+      scene.add(ol);
+    });
+
+    // Lane divider lines
     [-1.1, 1.1].forEach(x => {
-      const l = new THREE.Mesh(new THREE.PlaneGeometry(0.14, TILE_LEN), lineMat);
-      l.rotation.x = -Math.PI / 2;
-      l.position.set(x, GY + 0.01, zPos);
+      const l = new THREE.Mesh(new THREE.PlaneGeometry(0.13, TILE_LEN), lineMat);
+      l.rotation.x = -Math.PI/2;
+      l.position.set(x, GY+0.012, zPos);
       scene.add(l);
     });
 
-    // Middle dashed line
-    for (let d = 0; d < 6; d++) {
-      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 2.4), dashMat);
-      dash.rotation.x = -Math.PI / 2;
-      dash.position.set(0, GY + 0.01, zPos - d * (TILE_LEN / 6) + TILE_LEN / 2);
+    // GOLD center dashes (Tom Run Gold style)
+    for (let d=0; d<5; d++) {
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 2.8), goldMat);
+      dash.rotation.x = -Math.PI/2;
+      dash.position.set(0, GY+0.022, zPos - d*(TILE_LEN/5) + TILE_LEN/2 - TILE_LEN/10);
       scene.add(dash);
+    }
+
+    // Subtle lane shadow overlays (gives depth to each lane)
+    [-2.2, 2.2].forEach(x => {
+      const shadow = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.1, TILE_LEN),
+        new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0.06, depthWrite:false})
+      );
+      shadow.rotation.x = -Math.PI/2;
+      shadow.position.set(x, GY+0.008, zPos);
+      scene.add(shadow);
+    });
+
+    // Cross-lines every half tile (feel of forward movement)
+    for (let cl=0; cl<2; cl++) {
+      const crossZ = zPos - cl*(TILE_LEN/2) + TILE_LEN/4;
+      const cross = new THREE.Mesh(new THREE.PlaneGeometry(7.4, 0.08), dimLineMat);
+      cross.rotation.x = -Math.PI/2;
+      cross.position.set(0, GY+0.011, crossZ);
+      scene.add(cross);
     }
   }
 }
@@ -465,136 +548,247 @@ const rng=(a,b)=>a+Math.random()*(b-a);
 const ri=(a,b)=>Math.floor(rng(a,b+1));
 
 function fillSide(g, side) {
-  const bx = side * (5.35 + rng(0.1, 0.35));
+  const bx = side * 5.45;
 
-  // Front barrier (orange + blue like reference)
-  const barrierBlue = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.85, TILE_LEN), toon(0x416fcb));
-  barrierBlue.position.set(bx + side * 0.08, GY + 0.43, 0);
-  themeVisuals.barrierBlue.push(barrierBlue.material);
-  g.add(barrierBlue);
-  const barrierOrange = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.18, TILE_LEN), toon(0xf07a35));
-  barrierOrange.position.set(bx + side * 0.08, GY + 0.08, 0);
-  themeVisuals.barrierOrange.push(barrierOrange.material);
-  g.add(barrierOrange);
-
-  // Stadium base and tier steps (bowl illusion)
-  const base = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.55, TILE_LEN), toon(0x4b5f86));
-  base.position.set(bx + side * 2.65, GY + 0.28, 0);
-  base.receiveShadow = true;
-  themeVisuals.stand.push(base.material);
-  g.add(base);
-  const standColors = [0x5e78a6, 0x4f6c9e, 0x415f93, 0x365486, 0x2c4878];
-  for (let r = 0; r < 5; r++) {
-    const step = new THREE.Mesh(
-      new THREE.BoxGeometry(6.6 - r * 0.45, 0.46, TILE_LEN),
-      toon(standColors[r])
-    );
-    step.position.set(bx + side * (2.2 + r * 0.5), GY + 0.72 + r * 0.52, 0);
-    step.receiveShadow = true;
-    themeVisuals.stand.push(step.material);
-    g.add(step);
-  }
-
-  // Crowd ribbons on lower and upper sections
-  const crowdRibbon = new THREE.Mesh(
-    new THREE.PlaneGeometry(TILE_LEN - 1.2, 2.6),
-    new THREE.MeshBasicMaterial({ map:crowdTex, side:THREE.DoubleSide })
-  );
-  crowdRibbon.rotation.y = -side * Math.PI / 2;
-  crowdRibbon.position.set(bx + side * 0.95, GY + 2.0, 0);
-  themeVisuals.crowdRibbon.push(crowdRibbon.material);
-  g.add(crowdRibbon);
-  const crowdRibbonTop = crowdRibbon.clone();
-  crowdRibbonTop.scale.set(0.93, 0.72, 1);
-  crowdRibbonTop.position.set(bx + side * 1.62, GY + 3.1, 0);
-  themeVisuals.crowdRibbon.push(crowdRibbonTop.material);
-  g.add(crowdRibbonTop);
-
-  // 3D crowd accents
-  const crowdColors = [
-    0xff4d4d, 0x3b82f6, 0xfacc15, 0x22c55e,
-    0xf97316, 0xe879f9, 0x06b6d4, 0xfb7185,
-    0x6366f1, 0xffa500
-  ];
-  for (let r = 0; r < 3; r++) {
-    for (let c = 0; c < 16; c++) {
-      const shirt = crowdColors[ri(0, crowdColors.length - 1)];
-      const fan = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.14, 0.16, 0.52 + rng(0, 0.1), 7),
-        toon(shirt)
-      );
-      const z = -TILE_LEN / 2 + 1 + c * (TILE_LEN - 2) / 15 + rng(-0.1, 0.1);
-      const y = GY + 1.14 + r * 0.56 + rng(-0.04, 0.04);
-      const x = bx + side * (0.78 + r * 0.28 + rng(-0.04, 0.04));
-      fan.position.set(x, y, z);
-      fan.userData.baseY = y;
-      fan.userData.phase = Math.random() * Math.PI * 2;
-      crowdFans.push(fan);
-      themeVisuals.crowdBody.push(fan.material);
-      g.add(fan);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), toon(0xffcc88));
-      head.position.set(x, y + 0.34, z);
-      g.add(head);
-    }
-  }
-
-  // Upper flags
-  for (let f = 0; f < 4; f++) {
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.04, 0.04, 3.2, 6),
-      toon(0xdddddd)
-    );
-    pole.position.set(
-      bx + side * rng(0.3, 1.6),
-      GY + 4.2,
-      -TILE_LEN / 2 + 2 + f * (TILE_LEN - 4) / 3
-    );
-    g.add(pole);
-
-    const flag = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.0, 0.55),
-      toonDS(crowdColors[ri(0, crowdColors.length - 1)])
-    );
-    flag.position.set(pole.position.x + side * 0.55, pole.position.y + 1.2, pole.position.z);
-    flag.userData.phase = Math.random() * Math.PI * 2;
-    flag.userData.side = side;
-    wavingFlags.push(flag);
-    g.add(flag);
-  }
-
-  // Ad boards
-  const adColors = [0xef4444, 0x2563eb, 0x22c55e, 0xf59e0b];
-  for (let b = 0; b < 4; b++) {
+  // ── LED ADVERTISING BOARDS (pitch level) ─────────────────────────────
+  const adPalette = [0xff2222, 0xFFD700, 0x2255ee, 0xff7700, 0x22cc55, 0xee22cc];
+  const boardCount = 5;
+  const boardW = (TILE_LEN - 0.5) / boardCount;
+  for (let b=0; b<boardCount; b++) {
+    const boardZ = -TILE_LEN/2 + 0.25 + b*boardW + boardW/2;
+    const col = adPalette[b % adPalette.length];
+    // Board body
     const board = new THREE.Mesh(
-      new THREE.BoxGeometry(2.8, 0.8, 0.14),
-      toon(adColors[b % adColors.length])
+      new THREE.BoxGeometry(boardW - 0.1, 0.9, 0.14),
+      toon(col)
     );
-    board.position.set(
-      bx + side * 0.35,
-      GY + 0.5,
-      -TILE_LEN / 2 + 2 + b * (TILE_LEN - 4) / 3
-    );
+    board.position.set(bx + side*0.12, GY+0.5, boardZ);
     board.userData.baseScaleY = board.scale.y;
-    board.userData.phase = Math.random() * Math.PI * 2;
+    board.userData.phase = b*0.9 + Math.random()*0.6;
     pulseBoards.push(board);
     themeVisuals.ad.push(board.material);
     g.add(board);
+    // Bright inner highlight
+    const hi = new THREE.Mesh(
+      new THREE.BoxGeometry(boardW - 0.38, 0.42, 0.16),
+      new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.22})
+    );
+    hi.position.set(bx + side*0.13, GY+0.5, boardZ);
+    g.add(hi);
+    // Bottom trim strip
+    const trim = new THREE.Mesh(
+      new THREE.BoxGeometry(boardW - 0.1, 0.09, 0.15),
+      toon(0xFFD700)
+    );
+    trim.position.set(bx + side*0.12, GY+0.07, boardZ);
+    g.add(trim);
   }
 
-  // Simple bushes
-  for (let t = 0; t < 2; t++) {
-    const bush = new THREE.Mesh(
-      new THREE.SphereGeometry(0.55, 8, 6),
-      toon(0x32b84a)
+  // ── BARRIER WALL ─────────────────────────────────────────────────────
+  const barrierBlue = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.1, TILE_LEN), toon(0x1e5ed1));
+  barrierBlue.position.set(bx + side*0.06, GY+0.55, 0);
+  themeVisuals.barrierBlue.push(barrierBlue.material);
+  g.add(barrierBlue);
+  const barrierTop = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.18, TILE_LEN), toon(0xff7700));
+  barrierTop.position.set(bx + side*0.06, GY+1.09, 0);
+  themeVisuals.barrierOrange.push(barrierTop.material);
+  g.add(barrierTop);
+
+  // ── CONCRETE BASE ─────────────────────────────────────────────────────
+  const concrete = new THREE.Mesh(new THREE.BoxGeometry(10.5, 0.48, TILE_LEN), toon(0x6a7888));
+  concrete.position.set(bx + side*4.6, GY+0.24, 0);
+  concrete.receiveShadow = true;
+  themeVisuals.stand.push(concrete.material);
+  g.add(concrete);
+
+  // ── MULTI-TIER COLORFUL SEATING ───────────────────────────────────────
+  const seatColors = [
+    [0xee2222, 0xcc1111], // Red
+    [0xFFCC00, 0xddaa00], // Gold
+    [0x2244ee, 0x1133cc], // Blue
+    [0x22bb44, 0x119933], // Green
+    [0xee5500, 0xcc4400], // Orange
+    [0xaa22dd, 0x881fbb], // Purple
+  ];
+  const tiers = [
+    {depth:1.35, height:0.62, yBase:0.50, xOff:1.1},
+    {depth:1.35, height:0.62, yBase:1.12, xOff:2.45},
+    {depth:1.35, height:0.62, yBase:1.74, xOff:3.80},
+    {depth:1.35, height:0.62, yBase:2.36, xOff:5.15},
+    {depth:1.35, height:0.62, yBase:2.98, xOff:6.50},
+    {depth:1.35, height:0.62, yBase:3.60, xOff:7.85},
+  ];
+  const sectionCount = 3;
+  const sectionLen = TILE_LEN / sectionCount;
+  tiers.forEach((tier, ti) => {
+    for (let sec=0; sec<sectionCount; sec++) {
+      const col = seatColors[(ti + sec) % seatColors.length];
+      const block = new THREE.Mesh(
+        new THREE.BoxGeometry(tier.depth, tier.height, sectionLen - 0.1),
+        toon(col[0])
+      );
+      block.position.set(
+        bx + side*tier.xOff,
+        GY + tier.yBase,
+        -TILE_LEN/2 + sec*sectionLen + sectionLen/2
+      );
+      block.receiveShadow = true;
+      themeVisuals.stand.push(block.material);
+      g.add(block);
+      // Seat row detail lines (darker stripes to simulate rows)
+      for (let row=0; row<3; row++) {
+        const rowLine = new THREE.Mesh(
+          new THREE.BoxGeometry(tier.depth + 0.02, 0.045, sectionLen - 0.14),
+          toon(col[1])
+        );
+        rowLine.position.set(
+          bx + side*tier.xOff,
+          GY + tier.yBase - tier.height/2 + 0.12 + row*(tier.height/3),
+          -TILE_LEN/2 + sec*sectionLen + sectionLen/2
+        );
+        g.add(rowLine);
+      }
+    }
+    // Section gap dividers (white trim)
+    for (let sec=1; sec<sectionCount; sec++) {
+      const div = new THREE.Mesh(
+        new THREE.BoxGeometry(tier.depth + 0.02, tier.height + 0.02, 0.07),
+        toon(0xffffff)
+      );
+      div.position.set(bx + side*tier.xOff, GY + tier.yBase, -TILE_LEN/2 + sec*sectionLen);
+      g.add(div);
+    }
+  });
+
+  // ── CROWD TEXTURE RIBBON ──────────────────────────────────────────────
+  const crowdRibbon = new THREE.Mesh(
+    new THREE.PlaneGeometry(TILE_LEN - 0.9, 4.0),
+    new THREE.MeshBasicMaterial({ map:crowdTex, side:THREE.DoubleSide })
+  );
+  crowdRibbon.rotation.y = -side * Math.PI/2;
+  crowdRibbon.position.set(bx + side*1.3, GY+2.2, 0);
+  themeVisuals.crowdRibbon.push(crowdRibbon.material);
+  g.add(crowdRibbon);
+
+  // ── 3D CROWD FANS ─────────────────────────────────────────────────────
+  const crowdColors=[0xff4d4d,0x3b82f6,0xfacc15,0x22c55e,0xf97316,0xe879f9,0x06b6d4,0xfb7185,0x6366f1,0xffa500];
+  for (let r=0; r<4; r++) {
+    for (let c=0; c<14; c++) {
+      const shirt = crowdColors[ri(0, crowdColors.length-1)];
+      const fan = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.13, 0.16, 0.5+rng(0,0.12), 7),
+        toon(shirt)
+      );
+      const z = -TILE_LEN/2 + 1 + c*(TILE_LEN-2)/13 + rng(-0.1,0.1);
+      const y = GY + 1.2 + r*0.6 + rng(-0.05,0.05);
+      const x = bx + side*(0.88 + r*0.36 + rng(-0.05,0.05));
+      fan.position.set(x,y,z);
+      fan.userData.baseY=y; fan.userData.phase=Math.random()*Math.PI*2;
+      crowdFans.push(fan);
+      themeVisuals.crowdBody.push(fan.material);
+      g.add(fan);
+      const head=new THREE.Mesh(new THREE.SphereGeometry(0.11,6,6),toon(0xffcc88));
+      head.position.set(x,y+0.33,z); g.add(head);
+      // Some fans hold scarves / raise arms
+      if (Math.random()>0.6) {
+        const arm=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.3,0.08),toon(shirt));
+        arm.position.set(x+rng(-0.12,0.12),y+0.58,z); g.add(arm);
+      }
+    }
+  }
+
+  // ── WAVING FLAGS ──────────────────────────────────────────────────────
+  const flagPalette=[0xff3333,0xFFD700,0x2244ee,0x33cc55,0xff6600,0xee22ee,0xffffff,0x00ddff];
+  for (let f=0; f<5; f++) {
+    const poleZ = -TILE_LEN/2 + 1.2 + f*(TILE_LEN-2.4)/4;
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.045, 5.5, 6),
+      toon(0xcccccc)
     );
+    pole.position.set(bx + side*rng(1.4,2.5), GY+5.6, poleZ);
+    g.add(pole);
+    const flagCol = flagPalette[ri(0,flagPalette.length-1)];
+    const flag = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.5, 0.8),
+      toonDS(flagCol)
+    );
+    flag.position.set(pole.position.x + side*0.75, pole.position.y+1.8, poleZ);
+    flag.userData.phase = Math.random()*Math.PI*2;
+    flag.userData.side  = side;
+    wavingFlags.push(flag);
+    g.add(flag);
+    // Second smaller flag on same pole
+    if (Math.random()>0.5) {
+      const flag2 = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.9,0.5),
+        toonDS(flagPalette[ri(0,flagPalette.length-1)])
+      );
+      flag2.position.set(pole.position.x + side*0.45, pole.position.y+0.7, poleZ);
+      flag2.userData.phase = Math.random()*Math.PI*2;
+      flag2.userData.side  = side;
+      wavingFlags.push(flag2);
+      g.add(flag2);
+    }
+  }
+
+  // ── FLOODLIGHT TOWERS ─────────────────────────────────────────────────
+  [TILE_LEN/2 - 1.5, -TILE_LEN/2 + 1.5].forEach(fz => {
+    // Main mast
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.15, 9.0, 8),
+      toon(0x8898a8)
+    );
+    mast.position.set(bx + side*3.6, GY+4.5, fz);
+    g.add(mast);
+    // Diagonal support arm
+    const arm = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05,0.07,2.0,6),
+      toon(0x8898a8)
+    );
+    arm.rotation.z = side * -0.55;
+    arm.position.set(bx + side*2.75, GY+8.6, fz);
+    g.add(arm);
+    // Light housing
+    const housing = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 0.38, 0.65),
+      toon(0xaabbcc)
+    );
+    housing.position.set(bx + side*2.25, GY+9.05, fz);
+    themeVisuals.flood.push(housing.material);
+    g.add(housing);
+    // Bright LED lens face
+    const lens = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 0.2, 0.14),
+      new THREE.MeshBasicMaterial({color:0xfffde8})
+    );
+    lens.position.set(bx + side*2.25, GY+9.05, fz);
+    g.add(lens);
+    // Transparent light cone beam
+    const coneH = 6.5;
+    const coneGeo = new THREE.ConeGeometry(1.8, coneH, 10, 1, true);
+    const coneMesh = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
+      color:0xfff8cc, transparent:true, opacity:0.04,
+      side:THREE.DoubleSide, depthWrite:false
+    }));
+    coneMesh.position.set(bx + side*2.25, GY+9.05 - coneH/2, fz);
+    g.add(coneMesh);
+  });
+
+  // ── DECORATIVE BUSHES / PLANTERS ──────────────────────────────────────
+  for (let t=0; t<3; t++) {
+    const bushR = 0.52 + rng(0,0.25);
+    const bush = new THREE.Mesh(new THREE.SphereGeometry(bushR,8,6), toon(0x2ab040));
     bush.position.set(
-      bx + side * rng(2.8, 4.2),
-      GY + 0.35,
-      -TILE_LEN / 2 + 3 + t * 7 + rng(-1.5, 1.5)
+      bx + side*rng(5.2,7.0), GY+0.28,
+      -TILE_LEN/2 + 2 + t*(TILE_LEN/3) + rng(-1.5,1.5)
     );
-    bush.scale.y = 0.55;
+    bush.scale.y = 0.52;
     themeVisuals.bush.push(bush.material);
     g.add(bush);
+    // Planter box
+    const planter=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.3,0.8),toon(0x8b6340));
+    planter.position.set(bush.position.x, GY+0.15, bush.position.z);
+    g.add(planter);
   }
 }
 
@@ -610,80 +804,155 @@ function buildScrollingGoals() {
 function buildStadiumBackdrop() {
   const backZ = GOAL_Z_BASE - 18;
 
-  // Back wall bowl
-  const wall = new THREE.Mesh(
-    new THREE.BoxGeometry(16, 6.5, 1.2),
-    toon(0x9fb3dc)
-  );
-  wall.position.set(0, 3.2, backZ);
+  // ── MAIN BACK WALL ────────────────────────────────────────────────────
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(20, 9.5, 1.6), toon(0x8ab0d8));
+  wall.position.set(0, 4.75, backZ);
   themeVisuals.backdrop.push(wall.material);
   scene.add(wall);
 
-  // Tunnel opening
-  const tunnel = new THREE.Mesh(
-    new THREE.BoxGeometry(3.2, 3.4, 1.4),
-    toon(0x2b3f63)
-  );
-  tunnel.position.set(0, 1.8, backZ + 0.15);
+  // Colored side panels (left=red, right=blue)
+  [[-7.5, 0xee2222], [7.5, 0x2255ee]].forEach(([x, col]) => {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(4.5, 9.5, 1.4), toon(col));
+    panel.position.set(x, 4.75, backZ + 0.05);
+    themeVisuals.backdrop.push(panel.material);
+    scene.add(panel);
+  });
+
+  // Arched top sections (box staircase dome feel)
+  [-4.5,-2.2,0,2.2,4.5].forEach((xi,i) => {
+    const archH = 2.2 - Math.abs(xi)*0.18;
+    const arch = new THREE.Mesh(new THREE.BoxGeometry(2.6, archH, 1.5), toon(0x7a9ec8));
+    arch.position.set(xi, 9.5 + archH/2 - 0.5, backZ + 0.05);
+    themeVisuals.backdrop.push(arch.material);
+    scene.add(arch);
+  });
+
+  // ── TUNNEL ARCH ───────────────────────────────────────────────────────
+  const tunnel = new THREE.Mesh(new THREE.BoxGeometry(4.0, 4.4, 2.0), toon(0x243554));
+  tunnel.position.set(0, 2.2, backZ + 0.22);
   themeVisuals.tunnel.push(tunnel.material);
   scene.add(tunnel);
+  // Dark interior
   const tunnelInner = new THREE.Mesh(
-    new THREE.BoxGeometry(2.4, 2.6, 1.5),
-    new THREE.MeshBasicMaterial({ color:0x13243d })
+    new THREE.BoxGeometry(3.2, 3.6, 2.2),
+    new THREE.MeshBasicMaterial({color:0x06101e})
   );
-  tunnelInner.position.set(0, 1.55, backZ + 0.28);
+  tunnelInner.position.set(0, 1.9, backZ + 0.5);
   scene.add(tunnelInner);
+  // Arch keystone top
+  const keystone = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.55, 1.8), toon(0x3a5280));
+  keystone.position.set(0, 4.68, backZ + 0.22);
+  themeVisuals.tunnel.push(keystone.material);
+  scene.add(keystone);
+  // Tunnel frame lights (LED strips)
+  for (let tl=0; tl<6; tl++) {
+    const led = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.12, 0.12),
+      new THREE.MeshBasicMaterial({color:0xFFD700})
+    );
+    led.position.set(-1.8 + tl*0.72, 4.45, backZ+0.62);
+    scene.add(led);
+  }
 
-  // Scoreboard
-  const board = new THREE.Mesh(
-    new THREE.BoxGeometry(4.8, 2.3, 0.4),
-    toon(0x2f3b4e)
-  );
-  board.position.set(0, 6.2, backZ + 0.2);
-  themeVisuals.backdrop.push(board.material);
-  scene.add(board);
+  // ── LED SCOREBOARD ────────────────────────────────────────────────────
+  const boardFrame = new THREE.Mesh(new THREE.BoxGeometry(7.2, 3.2, 0.6), toon(0x12202e));
+  boardFrame.position.set(0, 7.6, backZ + 0.32);
+  scene.add(boardFrame);
+  // Screen
   const boardScreen = new THREE.Mesh(
-    new THREE.PlaneGeometry(4.0, 1.65),
-    new THREE.MeshBasicMaterial({ color:0x63bd5c })
+    new THREE.PlaneGeometry(6.4, 2.5),
+    new THREE.MeshBasicMaterial({color:0x22cc44})
   );
-  boardScreen.position.set(0, 6.2, backZ + 0.43);
+  boardScreen.position.set(0, 7.6, backZ + 0.66);
   themeVisuals.boardScreen.push(boardScreen.material);
   scene.add(boardScreen);
+  // Screen scanlines effect
+  for (let sl=0; sl<8; sl++) {
+    const line = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.4, 0.07),
+      new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0.15, depthWrite:false})
+    );
+    line.position.set(0, 6.45 + sl*0.32, backZ+0.67);
+    scene.add(line);
+  }
+  // Gold LED dot border on scoreboard
+  for (let ld=0; ld<10; ld++) {
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09,6,6),
+      new THREE.MeshBasicMaterial({color:0xFFD700})
+    );
+    dot.position.set(-3.2 + ld*0.72, 9.22, backZ+0.64);
+    scene.add(dot);
+  }
+  // SCORE label bars flanking screen
+  [[-3.8, 0xff3333], [3.8, 0x3366ff]].forEach(([x, col]) => {
+    const scoreBar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 2.5, 0.5), toon(col));
+    scoreBar.position.set(x, 7.6, backZ+0.36);
+    scene.add(scoreBar);
+  });
 
-  // Flood lights
-  [-6.2, 6.2].forEach(x => {
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 5.6, 8), toon(0x8f8f95));
-    mast.position.set(x, 5.1, backZ + 0.05);
+  // ── FLOODLIGHTS ───────────────────────────────────────────────────────
+  [-8.5, 8.5].forEach(x => {
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.18,7.0,8), toon(0x8898a0));
+    mast.position.set(x, 6.5, backZ + 0.08);
     scene.add(mast);
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.15, 0.35), toon(0xdde6f4));
-    panel.position.set(x, 8.5, backZ + 0.22);
-    themeVisuals.flood.push(panel.material);
-    scene.add(panel);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.3, 0.5), toon(0xbcccd8));
+    housing.position.set(x, 10.1, backZ + 0.24);
+    themeVisuals.flood.push(housing.material);
+    scene.add(housing);
+    const lens = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.22, 0.16),
+      new THREE.MeshBasicMaterial({color:0xfffee8})
+    );
+    lens.position.set(x, 10.1, backZ + 0.54);
+    scene.add(lens);
   });
 }
 
 function makeGoalMesh(x) {
   const g = new THREE.Group();
-  const mat = toon(0xf0f0f0);
-  const ph=1.45, pw=1.9;
-  const pg = new THREE.CylinderGeometry(0.06,0.06,ph,8);
-  const lp=new THREE.Mesh(pg,mat); lp.position.set(-pw/2,ph/2,0); g.add(lp);
-  const rp=new THREE.Mesh(pg,mat); rp.position.set( pw/2,ph/2,0); g.add(rp);
-  const bg=new THREE.CylinderGeometry(0.06,0.06,pw,8);
-  const bar=new THREE.Mesh(bg,mat); bar.rotation.z=Math.PI/2; bar.position.set(0,ph,0); g.add(bar);
-  const net=new THREE.Mesh(new THREE.PlaneGeometry(pw,ph),
-    new THREE.MeshBasicMaterial({color:0xffffff,opacity:0.2,transparent:true,side:THREE.DoubleSide}));
-  net.position.set(0,ph/2,0.22); g.add(net);
-  for(let i=-2;i<=2;i++){
-    const vl=new THREE.Mesh(new THREE.PlaneGeometry(0.04,ph),
-      new THREE.MeshBasicMaterial({color:0xffffff,opacity:0.22,transparent:true,side:THREE.DoubleSide}));
-    vl.position.set(i*(pw/4),ph/2,0.48); g.add(vl);
+  const ph=1.65, pw=2.1;
+  const postMat = toon(0xf4f4f4);
+
+  // Posts (rounded cylinders)
+  [-pw/2, pw/2].forEach(px => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,ph,10), postMat);
+    post.position.set(px, ph/2, 0); g.add(post);
+    // Base
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.15,0.1,8), toon(0x444455));
+    base.position.set(px,0.05,0); g.add(base);
+  });
+  // Crossbar
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,pw+0.18,10), postMat);
+  bar.rotation.z = Math.PI/2; bar.position.set(0,ph,0); g.add(bar);
+
+  // Net back + sides
+  const netMat = new THREE.MeshBasicMaterial({color:0xffffff,opacity:0.28,transparent:true,side:THREE.DoubleSide});
+  const netBack = new THREE.Mesh(new THREE.PlaneGeometry(pw,ph), netMat);
+  netBack.position.set(0, ph/2, 0.28); g.add(netBack);
+  // Vertical net lines
+  for (let i=-3; i<=3; i++) {
+    const vl = new THREE.Mesh(new THREE.PlaneGeometry(0.04,ph),
+      new THREE.MeshBasicMaterial({color:0xffffff,opacity:0.3,transparent:true,side:THREE.DoubleSide}));
+    vl.position.set(i*(pw/6), ph/2, 0.55); g.add(vl);
   }
+  // Horizontal net lines
+  for (let i=0; i<5; i++) {
+    const hl = new THREE.Mesh(new THREE.PlaneGeometry(pw, 0.04),
+      new THREE.MeshBasicMaterial({color:0xffffff,opacity:0.3,transparent:true,side:THREE.DoubleSide}));
+    hl.position.set(0, (i+0.5)*(ph/5), 0.55); g.add(hl);
+  }
+  // Goal blue glow fill
+  const glowFill = new THREE.Mesh(new THREE.PlaneGeometry(pw,ph),
+    new THREE.MeshBasicMaterial({color:0x4488ff,transparent:true,opacity:0.07,depthWrite:false,side:THREE.DoubleSide}));
+  glowFill.position.set(0,ph/2,0.18); g.add(glowFill);
+
   g.position.x = x;
   return g;
 }
 
 function buildSkyDeco() {
+  // Sky gradient dome
   const skyCanvas = document.createElement('canvas');
   skyCanvas.width = 256; skyCanvas.height = 256;
   skyCtx = skyCanvas.getContext('2d');
@@ -695,35 +964,96 @@ function buildSkyDeco() {
   );
   scene.add(sky);
 
-  const sunC = document.createElement('canvas');
-  sunC.width=128; sunC.height=128;
+  // ── DRAMATIC SUN WITH RAYS ────────────────────────────────────────────
+  const sunC = document.createElement('canvas'); sunC.width=256; sunC.height=256;
   const sc = sunC.getContext('2d');
-  const sg = sc.createRadialGradient(64,64,12,64,64,64);
-  sg.addColorStop(0,'#ffee44');
-  sg.addColorStop(0.35,'#ffdd22');
-  sg.addColorStop(0.6,'rgba(255,220,50,0.25)');
-  sg.addColorStop(1,'rgba(255,200,50,0)');
-  sc.fillStyle=sg; sc.fillRect(0,0,128,128);
+  // Outer glow
+  const sg = sc.createRadialGradient(128,128,6,128,128,128);
+  sg.addColorStop(0,   '#ffff66');
+  sg.addColorStop(0.18,'#ffee22');
+  sg.addColorStop(0.45,'rgba(255,230,50,0.3)');
+  sg.addColorStop(0.75,'rgba(255,200,50,0.08)');
+  sg.addColorStop(1,   'rgba(255,180,0,0)');
+  sc.fillStyle=sg; sc.fillRect(0,0,256,256);
+  // Radial sun rays
+  for (let ray=0; ray<16; ray++) {
+    const angle = (ray/16)*Math.PI*2;
+    const gradient = sc.createLinearGradient(
+      128 + Math.cos(angle)*20, 128 + Math.sin(angle)*20,
+      128 + Math.cos(angle)*118, 128 + Math.sin(angle)*118
+    );
+    gradient.addColorStop(0, 'rgba(255,240,80,0.35)');
+    gradient.addColorStop(1, 'rgba(255,220,50,0)');
+    sc.strokeStyle = gradient;
+    sc.lineWidth = 5 + Math.random()*4;
+    sc.beginPath();
+    sc.moveTo(128 + Math.cos(angle)*22, 128 + Math.sin(angle)*22);
+    sc.lineTo(128 + Math.cos(angle)*115, 128 + Math.sin(angle)*115);
+    sc.stroke();
+  }
   const sunMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(20,20),
-    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(sunC),transparent:true,depthWrite:false})
+    new THREE.PlaneGeometry(30, 30),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(sunC), transparent:true, depthWrite:false})
   );
-  sunMesh.position.set(28,20,-78); scene.add(sunMesh);
+  sunMesh.position.set(30, 22, -78);
+  scene.add(sunMesh);
 
-  for(let i=0;i<14;i++){
-    const cg=new THREE.Group();
-    const cnt = 3+Math.floor(Math.random()*4);
-    for(let p=0;p<cnt;p++){
-      const sz = 1.2+Math.random()*2.2;
-      const c=new THREE.Mesh(new THREE.SphereGeometry(sz,10,7),
-        new THREE.MeshBasicMaterial({color:0xffffff}));
-      c.position.set(p*1.6-cnt*0.8, rng(-0.3,0.3), rng(-0.3,0.3));
-      c.scale.y = 0.45+Math.random()*0.2;
-      cg.add(c);
+  // Secondary lens flare circle
+  const flareC = document.createElement('canvas'); flareC.width=128; flareC.height=128;
+  const fc = flareC.getContext('2d');
+  const fg = fc.createRadialGradient(64,64,2,64,64,64);
+  fg.addColorStop(0,'rgba(255,255,220,0.55)');
+  fg.addColorStop(0.3,'rgba(255,240,180,0.15)');
+  fg.addColorStop(1,'rgba(255,200,100,0)');
+  fc.fillStyle=fg; fc.fillRect(0,0,128,128);
+  const flareMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(18,18),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(flareC),transparent:true,depthWrite:false})
+  );
+  flareMesh.position.set(30,22,-78.5);
+  scene.add(flareMesh);
+
+  // ── DETAILED LAYERED CLOUDS ────────────────────────────────────────────
+  for (let i=0; i<20; i++) {
+    const cg = new THREE.Group();
+    const cnt = 4 + Math.floor(Math.random()*5);
+    const isLarge = Math.random()>0.5;
+    for (let p=0; p<cnt; p++) {
+      const sz = (isLarge ? 2.2 : 1.2) + Math.random()*2.6;
+      const puff = new THREE.Mesh(
+        new THREE.SphereGeometry(sz, 10, 7),
+        new THREE.MeshBasicMaterial({color:0xffffff})
+      );
+      puff.position.set(p*2.1 - cnt*0.95, rng(-0.5,0.6), rng(-0.5,0.5));
+      puff.scale.y = 0.38 + Math.random()*0.22;
+      puff.scale.z = 0.55 + Math.random()*0.35;
+      cg.add(puff);
     }
-    cg.position.set(rng(-65,65), rng(13,25), rng(-78,-12));
+    // Cloud underside shadow
+    const shadow = new THREE.Mesh(
+      new THREE.SphereGeometry(cnt*0.7, 10, 5),
+      new THREE.MeshBasicMaterial({color:0xb8c8dc})
+    );
+    shadow.scale.set(1.0, 0.18, 0.8);
+    shadow.position.y = -0.55;
+    cg.add(shadow);
+    cg.position.set(rng(-78,78), rng(15,30), rng(-82,-12));
     scene.add(cg);
   }
+
+  // ── DISTANT HAZE LAYER ────────────────────────────────────────────────
+  const hazeC = document.createElement('canvas'); hazeC.width=512; hazeC.height=64;
+  const hc = hazeC.getContext('2d');
+  const hg = hc.createLinearGradient(0,0,0,64);
+  hg.addColorStop(0,'rgba(180,210,240,0)');
+  hg.addColorStop(1,'rgba(200,220,240,0.35)');
+  hc.fillStyle=hg; hc.fillRect(0,0,512,64);
+  const hazeMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 18),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(hazeC),transparent:true,depthWrite:false})
+  );
+  hazeMesh.position.set(0,8,-85);
+  scene.add(hazeMesh);
 }
 
 function buildPlayer() {
@@ -966,18 +1296,42 @@ function canSpawnNow() {
 }
 
 function makeBall(radius) {
-  const b=new THREE.Mesh(new THREE.SphereGeometry(radius,14,14), toon(0xf8f8f8));
-  [0,Math.PI/2].forEach(ry=>{
-    const s=new THREE.Mesh(new THREE.TorusGeometry(radius,radius*0.11,6,14),
-      new THREE.MeshBasicMaterial({color:0x222222}));
-    s.rotation.y=ry; b.add(s);
+  const g = new THREE.Group();
+  // Ball sphere
+  const b = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 16), toon(0xf8f8f8));
+  b.castShadow = true;
+  // Black seam lines
+  [0, Math.PI/2, Math.PI/4].forEach(ry => {
+    const s = new THREE.Mesh(
+      new THREE.TorusGeometry(radius, radius*0.1, 6, 14),
+      new THREE.MeshBasicMaterial({color:0x111111})
+    );
+    s.rotation.y = ry; b.add(s);
   });
-  const pentagon = new THREE.Mesh(new THREE.CircleGeometry(radius*0.35,5),
-    new THREE.MeshBasicMaterial({color:0x222222}));
-  pentagon.position.z=radius*0.98; b.add(pentagon);
-  const pent2 = pentagon.clone(); pent2.position.z=-radius*0.98; pent2.rotation.y=Math.PI; b.add(pent2);
-  b.castShadow=true;
-  return b;
+  // Pentagon patches
+  const pent = new THREE.Mesh(new THREE.CircleGeometry(radius*0.33, 5),
+    new THREE.MeshBasicMaterial({color:0x111111}));
+  pent.position.z = radius*0.99; b.add(pent);
+  const pent2 = pent.clone(); pent2.position.z = -radius*0.99; pent2.rotation.y=Math.PI; b.add(pent2);
+  g.add(b);
+
+  // Glow aura sprite (additive blue-white)
+  const glowSp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTexWhite, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:0.7
+  }));
+  glowSp.scale.set(radius*5.5, radius*5.5, 1);
+  g.add(glowSp);
+
+  // Ground glow circle
+  const groundGlowMat = new THREE.MeshBasicMaterial({
+    color:0x88aaff, transparent:true, opacity:0.22, depthWrite:false
+  });
+  const groundGlow = new THREE.Mesh(new THREE.PlaneGeometry(radius*5, radius*5), groundGlowMat);
+  groundGlow.rotation.x = -Math.PI/2;
+  groundGlow.position.y = -radius + 0.03;
+  g.add(groundGlow);
+
+  return g;
 }
 
 function spawnBall() {
@@ -1023,12 +1377,30 @@ function spawnCone() {
 }
 
 function makeCone(x,z) {
-  const g=new THREE.Group();
-  const c=new THREE.Mesh(new THREE.ConeGeometry(0.3,0.9,8), toon(0xff5500));
-  const s=new THREE.Mesh(new THREE.CylinderGeometry(0.31,0.31,0.1,8,1,true),
-    toonDS(0xffffff));
-  s.position.y=0.08; c.add(s); c.castShadow=true; g.add(c);
-  g.position.set(x,GY+0.45,z); return g;
+  const g = new THREE.Group();
+  // Main cone body
+  const c = new THREE.Mesh(new THREE.ConeGeometry(0.33, 1.05, 9), toon(0xff5500));
+  c.castShadow = true;
+  // White reflective bands
+  [0.15, -0.08].forEach(y => {
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.335, 0.335, 0.1, 9, 1, true),
+      toonDS(0xffffff)
+    );
+    band.position.y = y; c.add(band);
+  });
+  g.add(c);
+  // Black wide base plate
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.09, 9), toon(0x222222));
+  base.position.y = -0.54; g.add(base);
+  // Ground glow (orange circle)
+  const groundGlow = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.6, 1.6),
+    new THREE.MeshBasicMaterial({color:0xff4400, transparent:true, opacity:0.15, depthWrite:false})
+  );
+  groundGlow.rotation.x = -Math.PI/2; groundGlow.position.y = -0.58; g.add(groundGlow);
+  g.position.set(x, GY+0.54, z);
+  return g;
 }
 
 function spawnConeRow() {
@@ -1048,42 +1420,86 @@ function spawnDoubleCone() {
 }
 
 function spawnBar() {
-  const g=new THREE.Group(); g.position.set(0,0,SPAWN_Z);
-  const mat=toon(0xee2222);
-  const beam=new THREE.Mesh(new THREE.BoxGeometry(7.2,0.2,0.2),mat);
-  beam.position.y=GY+1.7; g.add(beam);
-  [-3.4,3.4].forEach(x=>{
-    const p=new THREE.Mesh(new THREE.BoxGeometry(0.16,1.7,0.16),mat);
-    p.position.set(x,GY+0.85,0); g.add(p);
-    const cap=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.22,0.22), toon(0xffdd00));
-    cap.position.set(x,GY+1.82,0); g.add(cap);
+  const g = new THREE.Group(); g.position.set(0,0,SPAWN_Z);
+  // Main red beam with yellow warning bands
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.24, 0.24), toon(0xee2222));
+  beam.position.y = GY+1.72; g.add(beam);
+  // Yellow warning bands along beam
+  for (let s=-3; s<=3; s++) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.27, 0.27), toon(0xFFDD00));
+    band.position.set(s*1.0, GY+1.72, 0); g.add(band);
+  }
+  // Metallic support posts
+  [-3.55, 3.55].forEach(x => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.13,1.78,8), toon(0x9999bb));
+    post.position.set(x, GY+0.89, 0); g.add(post);
+    // Gold sphere cap
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.14,8,6), toon(0xFFDD00));
+    cap.position.set(x, GY+1.84, 0); g.add(cap);
+    // Red warning LED
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.07,6,6),
+      new THREE.MeshBasicMaterial({color:0xff3300}));
+    led.position.set(x, GY+2.0, 0); g.add(led);
+    // Heavy base plate
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.12, 0.32), toon(0x555577));
+    base.position.set(x, GY+0.06, 0); g.add(base);
   });
-  g.userData={type:'bar',beamY:GY+1.7,beamHH:0.1};
+  // Ground warning marks
+  for (let gm=-2.5; gm<=2.5; gm+=1.25) {
+    const mark = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.45),
+      new THREE.MeshBasicMaterial({color:0xFFDD00, transparent:true, opacity:0.35, depthWrite:false}));
+    mark.rotation.x = -Math.PI/2; mark.position.set(gm, GY+0.01, 0); g.add(mark);
+  }
+  g.userData = {type:'bar', beamY:GY+1.72, beamHH:0.12};
   scene.add(g); objects.push(g);
 }
 
 function spawnHurdle() {
-  const l=ri(0,2);
-  const g=new THREE.Group(); g.position.set(LANES[l],0,SPAWN_Z);
-  const mat=toon(0xee2222);
-  const beam=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.17,0.17),mat);
-  beam.position.y=GY+1.32; g.add(beam);
-  [-0.8,0.8].forEach(x=>{
-    const p=new THREE.Mesh(new THREE.BoxGeometry(0.14,1.38,0.14),mat);
-    p.position.set(x,GY+0.69,0); g.add(p);
+  const l = ri(0,2);
+  const g = new THREE.Group(); g.position.set(LANES[l],0,SPAWN_Z);
+  // Athletic hurdle - red beam on white posts
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.2, 0.2), toon(0xee2222));
+  beam.position.y = GY+1.35; g.add(beam);
+  // Yellow stripes on beam
+  [-0.55, 0, 0.55].forEach(bx => {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.22, 0.22), toon(0xFFDD00));
+    stripe.position.set(bx, GY+1.35, 0); g.add(stripe);
   });
-  g.userData={type:'hurdle',lane:l,beamY:GY+1.32,beamHH:0.09};
+  // White posts
+  [-0.86, 0.86].forEach(x => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.085,1.42,8), toon(0xf0f0f0));
+    post.position.set(x, GY+0.71, 0); g.add(post);
+    // Base foot
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.1,0.45), toon(0xee2222));
+    foot.position.set(x, GY+0.05, 0); g.add(foot);
+  });
+  g.userData = {type:'hurdle', lane:l, beamY:GY+1.35, beamHH:0.1};
   scene.add(g); objects.push(g);
 }
 
 function spawnBarrier() {
-  const l=ri(0,2);
-  const g=new THREE.Group(); g.position.set(LANES[l],0,SPAWN_Z);
-  const wall=new THREE.Mesh(new THREE.BoxGeometry(1.9,1.1,0.22), toon(0x2255dd));
-  wall.position.y=GY+0.55; g.add(wall);
-  const stripe=new THREE.Mesh(new THREE.BoxGeometry(1.9,0.18,0.23), toon(0xffffff));
-  stripe.position.y=GY+0.75; g.add(stripe);
-  g.userData={type:'barrier',lane:l,beamY:GY+1.1,beamHH:0.55};
+  const l = ri(0,2);
+  const g = new THREE.Group(); g.position.set(LANES[l],0,SPAWN_Z);
+  // Main wall body (police barrier blue)
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(1.95, 1.15, 0.28), toon(0x2255dd));
+  wall.position.y = GY+0.575; g.add(wall);
+  // White horizontal stripe
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.2, 0.3), toon(0xffffff));
+  stripe.position.y = GY+0.78; g.add(stripe);
+  // Yellow/black hazard chevrons on top
+  for (let ch=0; ch<4; ch++) {
+    const chev = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.3),
+      toon(ch%2===0 ? 0xFFDD00 : 0x222222));
+    chev.position.set(-0.71 + ch*0.48, GY+1.1, 0); g.add(chev);
+  }
+  // Horizontal rail on top
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.1, 0.22), toon(0xaaaacc));
+  rail.position.y = GY+1.13; g.add(rail);
+  // Ground shadow/glow
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(2.4,0.7),
+    new THREE.MeshBasicMaterial({color:0x2244ff, transparent:true, opacity:0.12, depthWrite:false}));
+  glow.rotation.x = -Math.PI/2; glow.position.y = GY+0.01; g.add(glow);
+  g.userData = {type:'barrier', lane:l, beamY:GY+1.15, beamHH:0.575};
   scene.add(g); objects.push(g);
 }
 
@@ -1244,6 +1660,8 @@ function showGoalFlash() {
   document.getElementById('score').textContent='🏆 '+score;
   const gt=document.getElementById('goal-text');
   triggerArcadePulse('rgba(255,215,0,0.32)');
+  // Big gold burst at player position
+  spawnPickupBurst(playerGroup.position.x, playerGroup.position.y+1.2, playerGroup.position.z, glowTexGold, 18);
   gt.style.opacity='1';
   gt.style.transform='translateX(-50%) scale(1.2)';
   setTimeout(()=>{ gt.style.opacity='0'; gt.style.transform='translateX(-50%) scale(1)'; },900);
@@ -1300,6 +1718,7 @@ function updateGame(dt) {
   worldZ+=speed*dt;
   applyThemeProgression(dt);
   animateArcadeFX(dt);
+  updatePickupParticles(dt);
 
   // Smooth spawn interval by speed (no extreme compression at high speed).
   const targetSpawnInt = Math.max(0.9, 1.05 - Math.max(0, speed - 13) * 0.005);
@@ -1325,13 +1744,17 @@ function updateGame(dt) {
 
     if(obj.userData.type==='ball'){
       obj.rotation.y+=dt*2.2;
-      if(dz<0.85 && dx<0.85) { shootBallToGoal(obj); }
+      if(dz<0.85 && dx<0.85) {
+        spawnPickupBurst(obj.position.x, obj.position.y+0.3, obj.position.z, glowTexWhite, 12);
+        shootBallToGoal(obj);
+      }
     }
 
     if(obj.userData.type==='coin'){
       obj.rotation.y+=dt*3.5;
       if(dz<0.6 && dx<0.55){
         score+=5; document.getElementById('score').textContent='🏆 '+score;
+        spawnPickupBurst(obj.position.x, obj.position.y, obj.position.z, glowTexGold, 10);
         triggerArcadePulse('rgba(120,255,220,0.28)');
         scene.remove(obj); toRemove.push(obj); continue;
       }
