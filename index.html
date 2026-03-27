@@ -618,8 +618,8 @@ function fillSide(g, side) {
     g.add(trim);
   }
 
-  // ── MAIN STAND BODY (large, clean, blue-gray) ─────────────────────────
-  const standCol = 0x4a6580;
+  // ── MAIN STAND BODY (large, clean, vivid stadium blue) ────────────────
+  const standCol = 0x1a4faa;
   const standW = 9.8, standH = 7.0;
   const standBody = new THREE.Mesh(
     new THREE.BoxGeometry(standW, standH, TILE_LEN),
@@ -631,7 +631,7 @@ function fillSide(g, side) {
   g.add(standBody);
 
   // ── SEAT ROWS — thin horizontal lines (slightly darker) ───────────────
-  const rowCol = 0x3a5268;
+  const rowCol = 0x0d3a8f;
   for (let row=0; row<10; row++) {
     const rowY = GY + 0.6 + row * (standH * 0.88 / 10);
     const rowLine = new THREE.Mesh(
@@ -773,41 +773,35 @@ function fillSide(g, side) {
     g.add(flag);
   });
 
-  // ── CROWD TEXTURE RIBBON ──────────────────────────────────────────────
+  // ── CROWD TEXTURE RIBBON (positioned at inner face of stand) ─────────
+  const ribbonX = sx - side * (standW/2 + 0.10);
   const crowdRibbon = new THREE.Mesh(
     new THREE.PlaneGeometry(TILE_LEN - 0.6, 3.8),
     new THREE.MeshBasicMaterial({ map:crowdTex, side:THREE.DoubleSide })
   );
-  crowdRibbon.rotation.y = -side * Math.PI/2;
-  crowdRibbon.position.set(sx - side*0.05, GY+2.3, 0);
+  crowdRibbon.rotation.y = side * Math.PI/2;
+  crowdRibbon.position.set(ribbonX, GY+2.3, 0);
   themeVisuals.crowdRibbon.push(crowdRibbon.material);
   g.add(crowdRibbon);
 
-  // ── 3D CROWD FANS (on the stand) ─────────────────────────────────────
-  const crowdColors=[0xff4d4d,0x3b82f6,0xfacc15,0x22c55e,0xf97316,0x06b6d4,0xfb7185,0x6366f1];
-  for (let r=0; r<3; r++) {
-    for (let c=0; c<12; c++) {
-      const shirt = crowdColors[ri(0, crowdColors.length-1)];
-      const fan = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.12, 0.15, 0.48+rng(0,0.1), 7),
-        toon(shirt)
+  // ── COLORED FAN SECTION BLOCKS on inner stand face ────────────────────
+  // Bold color-block sections like real football stands: red/gold/blue/green
+  const fanSecCols = [0xdd2222, 0xFFD700, 0x1a88ee, 0x22bb44];
+  const secW = (TILE_LEN - 0.8) / fanSecCols.length;
+  fanSecCols.forEach((col, i) => {
+    for (let row = 0; row < 3; row++) {
+      const sec = new THREE.Mesh(
+        new THREE.BoxGeometry(0.07, 1.05, secW - 0.18),
+        toon(col)
       );
-      const z = -TILE_LEN/2 + 1.2 + c*(TILE_LEN-2.4)/11 + rng(-0.1,0.1);
-      const y = GY + 0.85 + r*0.62 + rng(-0.04,0.04);
-      const x = sx - side*(standW/2 - 0.55 - r*0.42 + rng(-0.04,0.04));
-      fan.position.set(x,y,z);
-      fan.userData.baseY=y; fan.userData.phase=Math.random()*Math.PI*2;
-      crowdFans.push(fan);
-      themeVisuals.crowdBody.push(fan.material);
-      g.add(fan);
-      const head=new THREE.Mesh(new THREE.SphereGeometry(0.1,6,6),toon(0xffcc88));
-      head.position.set(x,y+0.3,z); g.add(head);
-      if (Math.random()>0.62) {
-        const arm=new THREE.Mesh(new THREE.BoxGeometry(0.07,0.28,0.07),toon(shirt));
-        arm.position.set(x+rng(-0.11,0.11),y+0.54,z); g.add(arm);
-      }
+      sec.position.set(
+        sx - side*(standW/2 + 0.04),
+        GY + 0.6 + row * 1.5,
+        -TILE_LEN/2 + 0.4 + i*secW + secW/2
+      );
+      g.add(sec);
     }
-  }
+  });
 
   // ── SIMPLE FLOODLIGHT POLES ───────────────────────────────────────────
   [TILE_LEN/2 - 1.2, -TILE_LEN/2 + 1.2].forEach(fz => {
